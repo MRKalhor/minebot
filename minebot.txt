@@ -1,0 +1,279 @@
+-- متغیرهای موقعیت مکانی و جهت‌یابی
+local posX, posY, posZ = 0, 0, 0
+local orientation = 0  -- 0: شمال، 1: شرق، 2: جنوب، 3: غرب
+
+-- مختصات چست (منبع)
+local chestX, chestY, chestZ = 0, 0, 0
+
+-- جدول برای ثبت مکان‌های بازدید شده (برای اجتناب از معدنکاری مجدد در همان مکان)
+local visited = {}
+
+local function coordKey(x, y, z)
+  return x .. "," .. y .. "," .. z
+end
+
+local function markVisited(x, y, z)
+  visited[coordKey(x, y, z)] = true
+end
+
+local function isVisited(x, y, z)
+  return visited[coordKey(x, y, z)] ~= nil
+end
+
+-- لیست بلوک‌های معدنی مورد نظر (بر اساس نام‌های Minecraft)
+local ores = {
+  ["minecraft:iron_ore"] = true,
+  ["minecraft:gold_ore"] = true,
+  ["minecraft:diamond_ore"] = true,
+  ["minecraft:coal_ore"] = true,
+  ["minecraft:redstone_ore"] = true,
+  ["minecraft:lapis_ore"] = true,
+  ["minecraft:emerald_ore"] = true,
+}
+
+-- تابع بررسی موجودی (پر بودن تمام 16 اسلات)
+local function inventoryFull()
+  for i = 1, 16 do
+    if turtle.getItemCount(i) == 0 then
+      return false
+    end
+  end
+  return true
+end
+
+-- توابع حرکتی به همراه به‌روزرسانی مختصات
+local function moveForward()
+  while not turtle.forward() do
+    turtle.dig()
+    sleep(0.5)
+  end
+  if orientation == 0 then
+    posZ = posZ + 1
+  elseif orientation == 1 then
+    posX = posX + 1
+  elseif orientation == 2 then
+    posZ = posZ - 1
+  elseif orientation == 3 then
+    posX = posX - 1
+  end
+  markVisited(posX, posY, posZ)
+end
+
+local function moveBack()
+  while not turtle.back() do
+    -- در صورت نیاز، موانع پشت برداشته می‌شوند
+    turtle.turnLeft()
+    turtle.turnLeft()
+    turtle.dig()
+    turtle.turnLeft()
+    turtle.turnLeft()
+    sleep(0.5)
+  end
+  if orientation == 0 then
+    posZ = posZ - 1
+  elseif orientation == 1 then
+    posX = posX - 1
+  elseif orientation == 2 then
+    posZ = posZ + 1
+  elseif orientation == 3 then
+    posX = posX + 1
+  end
+  markVisited(posX, posY, posZ)
+end
+
+local function moveUp()
+  while not turtle.up() do
+    turtle.digUp()
+    sleep(0.5)
+  end
+  posY = posY + 1
+  markVisited(posX, posY, posZ)
+end
+
+local function moveDown()
+  while not turtle.down() do
+    turtle.digDown()
+    sleep(0.5)
+  end
+  posY = posY - 1
+  markVisited(posX, posY, posZ)
+end
+
+local function turnLeft()
+  turtle.turnLeft()
+  orientation = (orientation + 3) % 4
+end
+
+local function turnRight()
+  turtle.turnRight()
+  orientation = (orientation + 1) % 4
+end
+
+-- تابع تنظیم جهت (0: شمال، 1: شرق، 2: جنوب، 3: غرب)
+local function faceDirection(target)
+  while orientation ~= target do
+    turnRight()
+  end
+end
+
+-- تابع بازگشت به چست برای تخلیه موجودی
+local function returnToChest()
+  print("موجودی پر است؛ بازگشت به چست برای تخلیه...")
+  -- تنظیم حرکت عمودی تا تطابق با ارتفاع چست
+  while posY > chestY do
+    moveDown()
+  end
+  while posY < chestY do
+    moveUp()
+  end
+
+  -- حرکت در محور X
+  if posX > chestX then
+    faceDirection(3)  -- غرب
+    for i = 1, posX - chestX do
+      moveForward()
+    end
+  elseif posX < chestX then
+    faceDirection(1)  -- شرق
+    for i = 1, chestX - posX do
+      moveForward()
+    end
+  end
+
+  -- حرکت در محور Z
+  if posZ > chestZ then
+    faceDirection(2)  -- جنوب
+    for i = 1, posZ - chestZ do
+      moveForward()
+    end
+  elseif posZ < chestZ then
+    faceDirection(0)  -- شمال
+    for i = 1, chestZ - posZ do
+      moveForward()
+    end
+  end
+end
+
+-- تابع تخلیه موجودی در چست (فرض بر این است که چست در جلوی ربات قرار دارد)
+local function emptyInventory()
+  print("تخلیه موجودی...")
+  turtle.turnRight()
+  turtle.turnRight()  -- چرخش برای مواجهه با چست
+  for i = 1, 16 do
+    turtle.select(i)
+    turtle.drop()
+  end
+  turtle.select(1)
+  turtle.turnRight()
+  turtle.turnRight()  -- بازگشت به جهت اولیه
+end
+
+-- تابع بازگشت به محل معدنکاری پس از تخلیه موجودی
+local function returnToPosition(targetX, targetY, targetZ)
+  print("بازگشت به محل معدنکاری...")
+  -- حرکت در محور Z
+  if posZ > targetZ then
+    faceDirection(2)  -- جنوب
+    for i = 1, posZ - targetZ do
+      moveForward()
+    end
+  elseif posZ < targetZ then
+    faceDirection(0)  -- شمال
+    for i = 1, targetZ - posZ do
+      moveForward()
+    end
+  end
+
+  -- حرکت در محور X
+  if posX > targetX then
+    faceDirection(3)  -- غرب
+    for i = 1, posX - targetX do
+      moveForward()
+    end
+  elseif posX < targetX then
+    faceDirection(1)  -- شرق
+    for i = 1, targetX - posX do
+      moveForward()
+    end
+  end
+
+  -- حرکت در محور Y
+  if posY > targetY then
+    while posY > targetY do
+      moveDown()
+    end
+  elseif posY < targetY then
+    while posY < targetY do
+      moveUp()
+    end
+  end
+end
+
+-- تابع بررسی و حفاری بلوک‌های معدنی در جهت‌های مختلف
+local function checkAndMine(direction)
+  local success, data
+  if direction == "forward" then
+    success, data = turtle.inspect()
+  elseif direction == "up" then
+    success, data = turtle.inspectUp()
+  elseif direction == "down" then
+    success, data = turtle.inspectDown()
+  end
+
+  if success and ores[data.name] then
+    if direction == "forward" then
+      turtle.dig()
+    elseif direction == "up" then
+      turtle.digUp()
+    elseif direction == "down" then
+      turtle.digDown()
+    end
+  end
+end
+
+local function mineOre()
+  checkAndMine("forward")
+  checkAndMine("up")
+  checkAndMine("down")
+end
+
+-- حلقه اصلی معدنکاری با الگوریتم پیمایش ساده:
+local function miningLoop()
+  while true do
+    -- در صورتی که موجودی پر باشد:
+    if inventoryFull() then
+      -- ذخیره موقعیت فعلی برای ادامه کار پس از تخلیه
+      local resumeX, resumeY, resumeZ = posX, posY, posZ
+      returnToChest()
+      emptyInventory()
+      returnToPosition(resumeX, resumeY, resumeZ)
+    end
+
+    -- حفاری در محل فعلی
+    mineOre()
+
+    -- محاسبه موقعیت بعدی در جهت فعلی
+    local nextX, nextY, nextZ = posX, posY, posZ
+    if orientation == 0 then
+      nextZ = nextZ + 1
+    elseif orientation == 1 then
+      nextX = nextX + 1
+    elseif orientation == 2 then
+      nextZ = nextZ - 1
+    elseif orientation == 3 then
+      nextX = nextX - 1
+    end
+
+    -- اگر موقعیت بعدی قبلاً بازدید شده، جهت تغییر می‌کند
+    if isVisited(nextX, nextY, nextZ) then
+      turnRight()
+    else
+      moveForward()
+    end
+
+    sleep(0.2)
+  end
+end
+
+-- شروع فرآیند معدنکاری
+miningLoop()
